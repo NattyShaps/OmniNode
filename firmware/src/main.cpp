@@ -8,11 +8,16 @@
 #define WIFI_MAX_RETRIES 3
 #define WIFI_RETRY_TIMEOUT_MS 10000
 #define WIFI_RECONNECT_REBOOT_MS 60000
+#define FW_VERSION "0.1.0"
+#define API_VERSION "1.0"
+#define MANIFEST_VERSION 1
 
 WebServer server(80);
 
 String deviceId;
+String macAddress;
 unsigned long wifiLostTime = 0;
+volatile bool radioBusy = false;
 
 // Get the last 6 hex chars of the MAC address, lowercase, no separators
 String getMac6() {
@@ -20,6 +25,11 @@ String getMac6() {
   WiFi.macAddress(mac);
   char mac6[7];
   snprintf(mac6, sizeof(mac6), "%02x%02x%02x", mac[3], mac[4], mac[5]);
+  // Store full MAC address in AA:BB:CC:DD:EE:FF format
+  char macStr[18];
+  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X",
+           mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  macAddress = String(macStr);
   return String(mac6);
 }
 
@@ -65,9 +75,55 @@ void startMDNS() {
   }
 }
 
-// Temporary GET / handler — will be replaced with full manifest in Block 6
+// GET / — Root manifest per PRD Section 7
 void handleRoot() {
-  server.send(200, "application/json", "{\"status\": \"ok\"}");
+  unsigned long uptime = millis() / 1000;
+  String json = "{";
+  json += "\"device\":\"omninode\",";
+  json += "\"id\":\"" + deviceId + "\",";
+  json += "\"mac\":\"" + macAddress + "\",";
+  json += "\"firmware_version\":\"" FW_VERSION "\",";
+  json += "\"manifest_version\":" + String(MANIFEST_VERSION) + ",";
+  json += "\"api_version\":\"" API_VERSION "\",";
+  json += "\"uptime_seconds\":" + String(uptime) + ",";
+  json += "\"protocols\":[\"ir\"],";
+  json += "\"endpoints\":{";
+  json += "\"spec\":\"/openapi.json\",";
+  json += "\"status\":\"/status\"";
+  json += "}";
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+// GET /status — Operational status per PRD Section 9
+void handleStatus() {
+  unsigned long uptime = millis() / 1000;
+  String irStatus = radioBusy ? "busy" : "ready";
+  String json = "{";
+  json += "\"success\":true,";
+  json += "\"data\":{";
+  json += "\"device\":\"omninode\",";
+  json += "\"id\":\"" + deviceId + "\",";
+  json += "\"mac\":\"" + macAddress + "\",";
+  json += "\"firmware_version\":\"" FW_VERSION "\",";
+  json += "\"api_version\":\"" API_VERSION "\",";
+  json += "\"uptime_seconds\":" + String(uptime) + ",";
+  json += "\"free_heap_bytes\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"wifi\":{";
+  json += "\"ssid\":\"" + WiFi.SSID() + "\",";
+  json += "\"rssi_dbm\":" + String(WiFi.RSSI()) + ",";
+  json += "\"ip\":\"" + WiFi.localIP().toString() + "\"";
+  json += "},";
+  json += "\"protocols\":{";
+  json += "\"ir\":\"" + irStatus + "\",";
+  json += "\"rf\":\"not_available\",";
+  json += "\"nfc\":\"not_available\",";
+  json += "\"ble\":\"not_available\"";
+  json += "},";
+  json += "\"radio_busy\":" + String(radioBusy ? "true" : "false");
+  json += "}";
+  json += "}";
+  server.send(200, "application/json", json);
 }
 
 void setup() {
@@ -93,6 +149,7 @@ void setup() {
 
   // Start HTTP server
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/status", HTTP_GET, handleStatus);
   server.begin();
   Serial.println("HTTP server started on port 80.");
 
