@@ -7,6 +7,7 @@
 #include <IRsend.h>
 #include <IRutils.h>
 #include "secrets.h"
+#include "openapi_spec.h"
 
 #define LED_PIN 15
 #define IR_LED_PIN 0
@@ -154,7 +155,12 @@ void startMDNS() {
   }
 }
 
-// ─── HTTP handlers (Blocks 6 + 4) ──────────────────────────────
+// ─── HTTP handlers (Blocks 6 + 4 + 8) ──────────────────────────
+
+// GET /openapi.json — OpenAPI 3.0.3 spec per PRD Section 8
+void handleOpenApiSpec() {
+  server.send(200, "application/json", OPENAPI_SPEC);
+}
 
 // GET / — Root manifest per PRD Section 7
 void handleRoot() {
@@ -501,6 +507,7 @@ void setup() {
 
   // Start HTTP server
   server.on("/", HTTP_GET, handleRoot);
+  server.on("/openapi.json", HTTP_GET, handleOpenApiSpec);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/ir/capture", HTTP_POST, handleIrCapture);
   server.on("/ir/blast", HTTP_POST, handleIrBlast);
